@@ -1,6 +1,7 @@
 "use strict";
 
 const express = require("express");
+const { randomUUID } = require("node:crypto");
 const { admin, requireFirebaseUser } = require("../firebase-admin");
 const { analyzeProgress } = require("../services/progress-analyzer");
 const { generateQuestionBatch } = require("../services/question-generator");
@@ -14,68 +15,97 @@ async function readProgress(uid) {
   return snapshot.exists ? (snapshot.data().progress || {}) : {};
 }
 
-async function saveQuizProfile(uid, patch) {
+async function readAdaptiveProfile(uid) {
+  const ref = admin.firestore().doc(`users/${uid}/adaptiveQuiz/profile`);
+  const snapshot = await ref.get();
+  return snapshot.exists ? snapshot.data() : {};
+}
+
+async function saveAdaptiveProfile(uid, patch) {
   const ref = admin.firestore().doc(`users/${uid}/adaptiveQuiz/profile`);
   await ref.set({ ...patch, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
 }
 
 router.post("/start", async (req, res, next) => {
   try {
-    const progress = await readProgress(req.user.uid);
+    const [progress, adaptive] = await Promise.all([
+      readProgress(req.user.uid),
+      readAdaptiveProfile(req.user.uid)
+    ]);
+    progress.topicPerformance = adaptive.topicPerformance || {};
     const profile = analyzeProgress(progress);
-    const prior = await admin.firestore().doc(`users/${req.user.uid}/adaptiveQuiz/profile`).get();
-    const history = prior.exists ? (prior.data().questionHistory || []) : [];
-    const questions = await generateQuestionBatch(profile, history);
-    await saveQuizProfile(req.user.uid, { lastBatchTopics: questions.map(q => q.topic) });
-    res.json({ success: true, count: 8, profile, questions });
+    const history = adaptive.questionHistory || [];
+    const generated = await generateQuestionBatch(profile, history);
+    const sessionId = randomUUID();
+    const sessionRef = admin.firestore().doc(`users/${req.user.uid}/adaptiveQuiz/sessions/${sessionId}`);
+    await sessionRef.set({
+      questions: generated,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: "open"
+    });
+    const questions = generated.map(({ correctAnswer, explanation, ...question }) => question);
+    res.json({ success: true, sessionId, count: 8, profile, questions });
   } catch (error) { next(error); }
 });
 
 router.post("/submit", async (req, res, next) => {
   try {
-    const answers = req.body?.answers;
-    const questions = req.body?.questions;
-    if (!Array.isArray(answers) || !Array.isArray(questions) || answers.length !== 8 || questions.length !== 8) {
-      return res.status(400).json({ error: "Submit the complete eight-question batch." });
+    const { sessionId, answers } = req.body || {};
+    if (typeof sessionId !== "string" || !/^[0-9a-f-]{36}$/i.test(sessionId) ||
+        !Array.isArray(answers) || answers.length !== 8 ||
+        answers.some(value => !Number.isInteger(value) || value < 0 || value > 3)) {
+      return res.status(400).json({ error: "Submit one option index for each of the eight questions." });
     }
-    const profileRef = admin.firestore().doc(`users/${req.user.uid}/adaptiveQuiz/profile`);
-    const existing = await profileRef.get();
-    const previous = existing.exists ? existing.data() : {};
-    const performance = { ...(previous.topicPerformance || {}) };
+    const sessionRef = admin.firestore().doc(`users/${req.user.uid}/adaptiveQuiz/sessions/${sessionId}`);
+    const sessionSnapshot = await sessionRef.get();
+    if (!sessionSnapshot.exists || sessionSnapshot.data().status !== "open") {
+      return res.status(404).json({ error: "Quiz session not found or already submitted." });
+    }
+    const questions = sessionSnapshot.data().questions;
+    if (!Array.isArray(questions) || questions.length !== 8) {
+      return res.status(500).json({ error: "Stored quiz session is invalid." });
+    }
+
     let correct = 0;
-    const seen = new Set();
-    for (let i = 0; i < 8; i++) {
-      const q = questions[i];
-      if (!q || typeof q.id !== "string" || !Array.isArray(q.options) || q.options.length !== 4 ||
-          !Number.isInteger(q.correctAnswer) || q.correctAnswer < 0 || q.correctAnswer > 3) {
-        return res.status(400).json({ error: "Invalid question batch." });
-      }
-      const key = `${q.id}:${i}`;
-      if (seen.has(key)) return res.status(400).json({ error: "Duplicate question identifier." });
-      seen.add(key);
-      const ok = Number(answers[i]) === q.correctAnswer;
-      if (ok) correct++;
-      const topic = String(q.topic || "Other");
-      performance[topic] = performance[topic] || { attempts: 0, correct: 0 };
-      performance[topic].attempts++;
-      if (ok) performance[topic].correct++;
-    }
-    await saveQuizProfile(req.user.uid, {
-      topicPerformance: performance,
-      questionHistory: [...(previous.questionHistory || []), ...questions.map(q => q.question)].slice(-40),
-      lastScore: Math.round(correct / 8 * 100),
-      totalAttempts: (Number(previous.totalAttempts) || 0) + 8
+    const topicPerformance = { ...(await readAdaptiveProfile(req.user.uid)).topicPerformance || {} };
+    const review = questions.map((question, index) => {
+      const isCorrect = answers[index] === question.correctAnswer;
+      if (isCorrect) correct++;
+      const topic = question.topic;
+      topicPerformance[topic] = topicPerformance[topic] || { attempts: 0, correct: 0 };
+      topicPerformance[topic].attempts++;
+      if (isCorrect) topicPerformance[topic].correct++;
+      return {
+        id: question.id, topic, question: question.question,
+        options: question.options, selectedAnswer: answers[index],
+        correctAnswer: question.correctAnswer, isCorrect,
+        explanation: question.explanation, hint: question.hint
+      };
     });
-    res.json({ success: true, correct, total: 8, score: Math.round(correct / 8 * 100), topicPerformance: performance });
+
+    const score = Math.round(correct / 8 * 100);
+    const previous = await readAdaptiveProfile(req.user.uid);
+    await Promise.all([
+      saveAdaptiveProfile(req.user.uid, {
+        topicPerformance,
+        questionHistory: [...(previous.questionHistory || []), ...questions.map(q => q.question)].slice(-40),
+        lastScore: score,
+        totalAttempts: (Number(previous.totalAttempts) || 0) + 8
+      }),
+      sessionRef.update({ status: "submitted", submittedAt: admin.firestore.FieldValue.serverTimestamp() })
+    ]);
+    res.json({ success: true, correct, total: 8, score, review, topicPerformance });
   } catch (error) { next(error); }
 });
 
 router.get("/profile", async (req, res, next) => {
   try {
-    const progress = await readProgress(req.user.uid);
-    const course = analyzeProgress(progress);
-    const ref = await admin.firestore().doc(`users/${req.user.uid}/adaptiveQuiz/profile`).get();
-    res.json({ success: true, course, adaptive: ref.exists ? ref.data() : {} });
+    const [progress, adaptive] = await Promise.all([
+      readProgress(req.user.uid),
+      readAdaptiveProfile(req.user.uid)
+    ]);
+    progress.topicPerformance = adaptive.topicPerformance || {};
+    res.json({ success: true, course: analyzeProgress(progress), adaptive });
   } catch (error) { next(error); }
 });
 
