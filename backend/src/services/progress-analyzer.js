@@ -1,63 +1,51 @@
 "use strict";
 
-// These route IDs correspond to BitSecure's existing module registry.
+// IDs below match js/modules/registry.js and the existing route keys.
 const TOPIC_MODULES = {
-  Encoding: ["framing"],
+  Encoding: ["lab0", "framing"],
   Framing: ["framing"],
   Errors: ["errors"],
   ARQ: ["saw", "window"],
   Subnetting: ["subnets"],
-  IP: ["ip", "routing", "subnets"],
-  Routing: ["routing", "topology"],
-  TCP: ["tcp", "handshake", "congestion", "sockets"],
+  IP: ["ipheaders", "routing", "subnets"],
+  Routing: ["routing"],
+  TCP: ["tcpudp", "handshake", "congestion", "sockets"],
   DNS: ["dns"],
   HTTP: ["http"],
-  TLS: ["http", "encryption"],
-  NAT: ["ip", "firewall"],
+  TLS: ["http"],
+  NAT: ["ipheaders", "firewall"],
   Sockets: ["sockets"]
 };
 
-const TUTORIALS = {
-  t1: ["Encoding", "Framing"],
-  t2: ["ARQ", "IP"],
-  t3: ["Errors"],
-  t4: ["Subnetting"],
-  t5: ["ARQ", "TCP"],
-  t6: ["TCP", "TLS", "HTTP"]
-};
-
-function tutorialCompletion(progress, topic) {
-  const completed = new Set();
-  for (const [id, topics] of Object.entries(TUTORIALS)) {
-    const tutorial = progress?.tut?.[id];
-    if (tutorial === true || tutorial?.completed === true || tutorial?.done === true) {
-      topics.forEach(item => completed.add(item));
-    }
-  }
-  return completed.has(topic) ? 1 : 0;
-}
+const TUTORIAL_EVIDENCE = [
+  { id: "t1", topics: ["Encoding", "Framing"], done: p => Boolean(p.flags?.typed && p.flags?.psMoved && p.flags?.transmitted && p.flags?.rebuilt) },
+  { id: "t2", topics: ["ARQ", "IP"], done: p => Boolean((p.runs || []).some(r => r.loss >= 30) && p.flags?.retry && (p.runs || []).some(r => !r.ok) && p.flags?.viewedGap) },
+  { id: "t3", topics: ["Errors"], done: p => Boolean(p.flags?.errflip && p.flags?.parityMiss && p.flags?.crcCatch && p.flags?.trials) },
+  { id: "t4", topics: ["Subnetting"], done: p => Boolean(p.flags?.cidr20 && Number(p.stats?.subnetOk) >= 3) },
+  { id: "t5", topics: ["ARQ", "TCP"], done: p => Boolean(p.flags?.saw && p.flags?.window && p.flags?.gbnBreak) },
+  { id: "t6", topics: ["TCP", "TLS", "HTTP"], done: p => Boolean(p.flags?.handshake && p.flags?.filter && p.flags?.diagnosed && p.flags?.ecdh) }
+];
 
 function analyzeProgress(progress = {}) {
   const visited = progress.visited || {};
   const flags = progress.flags || {};
   const stats = progress.stats || {};
-  const topics = Object.keys(TOPIC_MODULES).map(topic => {
-    const moduleIds = TOPIC_MODULES[topic];
-    const visitedCount = moduleIds.filter(id => Boolean(visited[id] || visited[`m:${id}`])).length;
-    const activity = moduleIds.length ? visitedCount / moduleIds.length : 0;
-    const tutorial = tutorialCompletion(progress, topic);
+  const completedTutorialTopics = new Set();
+  for (const tutorial of TUTORIAL_EVIDENCE) {
+    if (tutorial.done(progress)) tutorial.topics.forEach(topic => completedTutorialTopics.add(topic));
+  }
+
+  const topics = Object.entries(TOPIC_MODULES).map(([topic, moduleIds]) => {
+    const visitedCount = moduleIds.filter(id => Boolean(visited[id])).length;
+    const activity = visitedCount / moduleIds.length;
+    const tutorial = completedTutorialTopics.has(topic) ? 1 : 0;
     const quiz = progress.topicPerformance?.[topic] || {};
     const attempts = Number(quiz.attempts) || 0;
     const accuracy = attempts ? Math.max(0, Math.min(1, Number(quiz.correct) / attempts)) : null;
     const assessment = accuracy === null ? 0 : accuracy >= 0.7 ? 1 : accuracy;
-    // Hybrid score: meaningful activity and tutorial completion, then assessment evidence.
     const completion = Math.round((activity * 0.35 + tutorial * 0.25 + assessment * 0.40) * 100);
     const eligible = activity > 0 || tutorial > 0 || attempts > 0;
-    return {
-      topic, completion, eligible,
-      accuracy: accuracy === null ? null : Math.round(accuracy * 100),
-      attempts
-    };
+    return { topic, completion, eligible, accuracy: accuracy === null ? null : Math.round(accuracy * 100), attempts };
   });
   const eligible = topics.filter(item => item.eligible);
   const overall = eligible.length
@@ -72,9 +60,7 @@ function analyzeProgress(progress = {}) {
 }
 
 function chooseTopicWeights(profile) {
-  const eligible = profile.topics.filter(item => item.eligible);
-  if (!eligible.length) return [];
-  return eligible.map(item => ({
+  return profile.topics.filter(item => item.eligible).map(item => ({
     topic: item.topic,
     weight: item.accuracy === null ? 1 : Math.max(0.25, 1.15 - item.accuracy / 100),
     completion: item.completion,
