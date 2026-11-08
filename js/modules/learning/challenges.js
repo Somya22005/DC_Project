@@ -455,7 +455,7 @@ regMod({
   mount(root) {
     let qs = [], i = 0, pts = 0, answered = false, hinted = false, res = [], level = Math.max(1, Math.min(5, Number(P.stats.quizLevel) || 1));
     let remoteSessionId = null, remoteAnswers = [], remoteMode = false, busy = false;
-    const apiBase = String(window.BITSECURE_API_URL || '').trim().replace(/\\/$/, '');
+    const apiBase = String(window.BITSECURE_API_URL || '').trim().replace(/\/$/, '');
     const shuffle = items => { const copy=items.slice(); for(let n=copy.length-1;n>0;n--){const j=Math.floor(Math.random()*(n+1));[copy[n],copy[j]]=[copy[j],copy[n]];} return copy; };
     const localStart = () => {
       remoteMode = false;
