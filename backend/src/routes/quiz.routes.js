@@ -53,7 +53,7 @@ router.post("/submit", async (req, res, next) => {
     const { sessionId, answers } = req.body || {};
     if (typeof sessionId !== "string" || !/^[0-9a-f-]{36}$/i.test(sessionId) ||
         !Array.isArray(answers) || answers.length !== 8 ||
-        answers.some(value => !Number.isInteger(value) || value < 0 || value > 3)) {
+        answers.some(value => !Number.isInteger(value) || value < -1 || value > 3)) {
       return res.status(400).json({ error: "Submit one option index for each of the eight questions." });
     }
     const sessionRef = admin.firestore().doc(`users/${req.user.uid}/adaptiveQuiz/sessions/${sessionId}`);
@@ -69,7 +69,7 @@ router.post("/submit", async (req, res, next) => {
     let correct = 0;
     const topicPerformance = { ...(await readAdaptiveProfile(req.user.uid)).topicPerformance || {} };
     const review = questions.map((question, index) => {
-      const isCorrect = answers[index] === question.correctAnswer;
+      const isCorrect = answers[index] >= 0 && answers[index] === question.correctAnswer;
       if (isCorrect) correct++;
       const topic = question.topic;
       topicPerformance[topic] = topicPerformance[topic] || { attempts: 0, correct: 0 };
