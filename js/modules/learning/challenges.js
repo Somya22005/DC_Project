@@ -454,20 +454,102 @@ regMod({
   ],
   mount(root) {
     let qs = [], i = 0, pts = 0, answered = false, hinted = false, res = [], level = Math.max(1, Math.min(5, Number(P.stats.quizLevel) || 1));
+    let remoteSessionId = null, remoteAnswers = [], remoteMode = false, busy = false;
+    const apiBase = String(window.BITSECURE_API_URL || '').trim().replace(/\\/$/, '');
     const shuffle = items => { const copy=items.slice(); for(let n=copy.length-1;n>0;n--){const j=Math.floor(Math.random()*(n+1));[copy[n],copy[j]]=[copy[j],copy[n]];} return copy; };
-    const start = () => {
+    const localStart = () => {
+      remoteMode = false;
+      remoteSessionId = null;
       const tier = level === 1 ? QBANK : (LEVEL_BANKS[level] || QBANK);
       const bank = shuffle(tier).slice(0, 6);
       qs = shuffle([...bank, genQuestion(level), genQuestion(level)]);
-      i = 0;
-      pts = 0;
-      res = [];
-      show();
+      i = 0; pts = 0; res = [];
+      showLocal();
     };
-    const show = () => {
+    const token = async () => {
+      const { auth } = await import('../../auth/firebase-client.js');
+      if (!auth.currentUser) throw new Error('Sign in to use adaptive quizzes.');
+      return auth.currentUser.getIdToken();
+    };
+    const request = async (path, body) => {
+      const idToken = await token();
+      const response = await fetch(apiBase + path, {
+        method: body ? 'POST' : 'GET',
+        headers: { Authorization: 'Bearer ' + idToken, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {})
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Adaptive quiz service is unavailable.');
+      return data;
+    };
+    const startRemote = async () => {
+      if (!apiBase || busy) return localStart();
+      busy = true;
+      root.innerHTML = panel('Preparing your adaptive quiz', '<p class="hint">Reviewing your learning progress and generating eight questions…</p>');
+      try {
+        const data = await request('/api/quiz/start', {});
+        if (!Array.isArray(data.questions) || data.questions.length !== 8 || !data.sessionId) throw new Error('The quiz service returned an invalid question batch.');
+        remoteMode = true;
+        remoteSessionId = data.sessionId;
+        qs = data.questions.map(q => [q.topic, q.question, q.options, null, '', q.hint || '']);
+        remoteAnswers = Array(8).fill(-1);
+        i = 0; pts = 0; res = [];
+        showRemote();
+      } catch (error) {
+        console.warn('Adaptive quiz unavailable; using the local question bank:', error);
+        localStart();
+      } finally { busy = false; }
+    };
+    const finishRemote = async () => {
+      if (busy) return;
+      busy = true;
+      root.innerHTML = panel('Checking your answers', '<p class="hint">Scoring your attempt and updating your adaptive topic profile…</p>');
+      try {
+        const data = await request('/api/quiz/submit', { sessionId: remoteSessionId, answers: remoteAnswers });
+        stat('quizRuns');
+        if (data.score > P.stats.quizBest) setStat('quizBest', data.score);
+        const history=Array.isArray(P.stats.quizHistory)?P.stats.quizHistory.slice(0,7):[];
+        history.unshift({level,score:data.score,points:data.correct,ts:Date.now()});
+        setStat('quizHistory',history.slice(0,8));
+        const tags = {};
+        (data.review || []).forEach(r => {
+          tags[r.topic] = tags[r.topic] || [0,0];
+          tags[r.topic][1]++;
+          if (r.isCorrect) tags[r.topic][0]++;
+        });
+        root.innerHTML = panel('Adaptive quiz results',
+          `<div class="quizq"><small class="tagc">Groq-generated · Adaptive batch</small><p class="big">${data.correct} of 8 correct (${data.score}%)</p><p>Your next batch will adapt to the topics that need more practice.</p></div>${statRow([[data.correct+'/8','correct answers'],[data.score+'%','score'],[P.stats.quizBest+'%','all-time best'],[P.stats.quizRuns,'quizzes taken']])}${tbl(['Topic','Correct'],Object.entries(tags).map(([t,v])=>[esc(t),v[0]+' of '+v[1]]))}<div class="quizq"><b>Answer review</b>${(data.review || []).map((r,n)=>`<div class="quizq"><small class="tagc">Question ${n+1} · ${esc(r.topic)}</small><p><b>${esc(r.question)}</b></p><p class="${r.isCorrect?'good':'bad'}">${r.selectedAnswer < 0 ? 'Skipped' : (r.isCorrect ? 'Correct' : 'Incorrect')} · Correct answer: ${esc(r.options[r.correctAnswer] || '')}</p><p class="hint">${esc(r.explanation || '')}</p></div>`).join('')}</div><div class="btnrow"><button class="btn" id="qagain">Generate another adaptive quiz</button><button class="btn ghost" id="qlocal">Use local quiz bank</button></div>`);
+        $('#qagain', root).onclick = startRemote;
+        $('#qlocal', root).onclick = localStart;
+      } catch (error) {
+        root.innerHTML = panel('Unable to submit quiz', `<p>${esc(error.message)}</p><div class="btnrow"><button class="btn" id="qretry">Retry submission</button><button class="btn ghost" id="qlocal">Start local quiz</button></div>`);
+        $('#qretry', root).onclick = finishRemote;
+        $('#qlocal', root).onclick = localStart;
+      } finally { busy = false; }
+    };
+    const showRemote = () => {
+      if (i >= 8) return finishRemote();
+      const q = qs[i];
+      root.innerHTML = panel(
+        'Adaptive knowledge check',
+        `<div class="quizq"><small class="tagc">Groq-generated · Question ${i+1}/8</small><div class="bar"><i style="width:${(i/8)*100}%"></i></div><small class="tagc">${esc(q[0])}</small><p class="big">${esc(q[1])}</p></div>
+        <div class="opts" id="qo">${q[2].map((o,k)=>`<button class="opt" data-k="${k}"><span>${'ABCD'[k]}</span>${esc(o)}</button>`).join('')}</div><div id="qfb"></div>
+        <div class="btnrow"><button class="btn ghost sm" id="qh">Show hint</button><button class="btn ghost sm" id="qskip">Skip</button></div>`
+      );
+      $('#qh',root).onclick=()=>{$('#qfb',root).innerHTML=vd('info','Hint.',esc(q[5]));};
+      $('#qskip',root).onclick=()=>{remoteAnswers[i]=-1;i++;showRemote();};
+      $('#qo',root).onclick=e=>{
+        const b=e.target.closest('.opt');if(!b||answered)return;
+        answered=true;remoteAnswers[i]=Number(b.dataset.k);
+        $$('.opt',root).forEach(o=>{o.disabled=true;o.classList.toggle('active',o===b);});
+        $('#qfb',root).innerHTML='<div class="btnrow"><button class="btn" id="qn">'+(i===7?'Submit answers':'Next question')+'</button></div>';
+        $('#qn',root).onclick=()=>{answered=false;i++;showRemote();};
+      };
+      answered=false;
+    };
+    const showLocal = () => {
       if (i >= qs.length) {
-        const c = res.filter(r => r.ok).length,
-          pct = Math.round((c / qs.length) * 100);
+        const c = res.filter(r => r.ok).length, pct = Math.round((c / qs.length) * 100);
         stat('quizRuns');
         if (pct > P.stats.quizBest) setStat('quizBest', pct);
         const passed=pct>=70, completedLevel=level, nextLevel=passed?Math.min(5,level+1):level;
@@ -477,61 +559,26 @@ regMod({
         const history=Array.isArray(P.stats.quizHistory)?P.stats.quizHistory.slice(0,7):[];
         history.unshift({level:completedLevel,score:pct,points:pts,ts:Date.now()}); setStat('quizHistory',history.slice(0,8));
         const tags = {};
-        res.forEach(r => {
-          tags[r.tag] = tags[r.tag] || [0, 0];
-          tags[r.tag][1]++;
-          if (r.ok) tags[r.tag][0]++;
-        });
-        root.innerHTML = panel(
-          'Quiz results',
-          `<div class="quizq"><small class="tagc">${LEVELS[completedLevel-1]} · Level ${completedLevel}</small><p class="big">${c} of ${qs.length} correct (${pct}%)</p><p>${passed ? (completedLevel < 5 ? 'Level passed — next level unlocked.' : 'Master level cleared — highest tier reached.') : 'Level not passed. Score at least 70% to unlock the next level.'}</p></div>${statRow([[pts + '/' + qs.length * 2, 'points (hints cost half)'],[P.stats.quizBest + '%', 'all-time best'],[P.stats.quizRuns, 'quizzes taken'],[Math.max(1,Number(P.stats.quizHighestLevel)||1)+'/5', 'highest level unlocked']])}<div class="quizq"><b>Difficulty progress</b><div class="bar"><i style="width:${(Math.max(1,Number(P.stats.quizHighestLevel)||1)/5)*100}%"></i></div><small>Next: ${LEVELS[nextLevel-1]}</small></div>${tbl(['Topic','Correct'],Object.entries(tags).map(([t,v])=>[t,v[0]+' of '+v[1]]))}${tbl(['Recent level','Score'],history.slice(0,5).map(run=>[LEVELS[Math.max(1,Math.min(5,run.level))-1],run.score+'%']))}${passed ? vd('ok','Well done.','Your performance unlocked the next step.') : vd('info','Keep practising.','Review the topic breakdown and retry this level.')}<div class="btnrow"><button class="btn" id="qagain">${passed && completedLevel < 5 ? 'Start next level' : 'Retry level'}</button></div>`
-        );
-        $('#qagain', root).onclick = start;
+        res.forEach(r => { tags[r.tag] = tags[r.tag] || [0,0]; tags[r.tag][1]++; if(r.ok) tags[r.tag][0]++; });
+        root.innerHTML = panel('Quiz results',
+          `<div class="quizq"><small class="tagc">${LEVELS[completedLevel-1]} · Level ${completedLevel}</small><p class="big">${c} of ${qs.length} correct (${pct}%)</p><p>${passed ? (completedLevel < 5 ? 'Level passed — next level unlocked.' : 'Master level cleared — highest tier reached.') : 'Level not passed. Score at least 70% to unlock the next level.'}</p></div>${statRow([[pts+'/'+qs.length*2,'points (hints cost half)'],[P.stats.quizBest+'%','all-time best'],[P.stats.quizRuns,'quizzes taken'],[Math.max(1,Number(P.stats.quizHighestLevel)||1)+'/5','highest level unlocked']])}${tbl(['Topic','Correct'],Object.entries(tags).map(([t,v])=>[t,v[0]+' of '+v[1]]))}${tbl(['Recent level','Score'],history.slice(0,5).map(run=>[LEVELS[Math.max(1,Math.min(5,run.level))-1],run.score+'%']))}${passed ? vd('ok','Well done.','Your performance unlocked the next step.') : vd('info','Keep practising.','Review the topic breakdown and retry this level.')}<div class="btnrow"><button class="btn" id="qagain">${passed && completedLevel < 5 ? 'Start next level' : 'Retry level'}</button><button class="btn ghost" id="qadaptive">Try adaptive quiz</button></div>`);
+        $('#qagain', root).onclick = localStart;
+        $('#qadaptive', root).onclick = startRemote;
         return;
       }
-      const q = qs[i];
-      answered = false;
-      hinted = false;
-      root.innerHTML = panel(
-        `Question ${i + 1} of ${qs.length}`,
-        `<div class="quizq"><small class="tagc">Level ${level} · ${esc(LEVELS[level-1])} · Question ${i+1}/${qs.length}</small><div class="bar"><i style="width:${(i / qs.length) * 100}%"></i></div><small class="tagc">${q[0]}</small><p class="big">${esc(q[1])}</p></div>
-        <div class="opts" id="qo">${q[2].map((o, k) => `<button class="opt" data-k="${k}"><span>${'ABCD'[k]}</span>${esc(o)}</button>`).join('')}</div><div id="qfb"></div>
-        <div class="btnrow"><button class="btn ghost sm" id="qh">Show hint</button><button class="btn ghost sm" id="qs">Skip</button></div>`
-      );
-      $('#qh', root).onclick = () => {
-        hinted = true;
-        $('#qfb', root).innerHTML = vd('info', 'Hint.', esc(q[5]));
-      };
-      $('#qs', root).onclick = () => {
-        if (!answered) {
-          res.push({ tag: q[0], ok: false });
-          i++;
-          show();
-        }
-      };
-      $('#qo', root).onclick = e => {
-        const b = e.target.closest('.opt');
-        if (!b || answered) return;
-        answered = true;
-        const k = +b.dataset.k,
-          ok = k === q[3];
-        res.push({ tag: q[0], ok });
-        if (ok) pts += hinted ? 1 : 2;
-        $$('.opt', root).forEach((o, n) => {
-          o.classList.toggle('right', n === q[3]);
-          o.classList.toggle('wrong', n === k && !ok);
-          o.disabled = true;
-        });
-        $('#qfb', root).innerHTML =
-          (ok ? vd('ok', 'Correct.', esc(q[4])) : vd('bad', 'Not quite.', esc(q[4]))) +
-          `<div class="btnrow"><button class="btn" id="qn">${i + 1 >= qs.length ? 'See results' : 'Next question'}</button></div>`;
-        $('#qn', root).onclick = () => {
-          i++;
-          show();
-        };
-        $('#qn', root).focus();
+      const q = qs[i]; answered = false; hinted = false;
+      root.innerHTML = panel(`Question ${i+1} of ${qs.length}`,
+        `<div class="quizq"><small class="tagc">Level ${level} · ${esc(LEVELS[level-1])} · Question ${i+1}/${qs.length}</small><div class="bar"><i style="width:${(i/qs.length)*100}%"></i></div><small class="tagc">${esc(q[0])}</small><p class="big">${esc(q[1])}</p></div><div class="opts" id="qo">${q[2].map((o,k)=>`<button class="opt" data-k="${k}"><span>${'ABCD'[k]}</span>${esc(o)}</button>`).join('')}</div><div id="qfb"></div><div class="btnrow"><button class="btn ghost sm" id="qh">Show hint</button><button class="btn ghost sm" id="qs">Skip</button></div>`);
+      $('#qh',root).onclick=()=>{hinted=true;$('#qfb',root).innerHTML=vd('info','Hint.',esc(q[5]));};
+      $('#qs',root).onclick=()=>{if(!answered){res.push({tag:q[0],ok:false});i++;showLocal();}};
+      $('#qo',root).onclick=e=>{
+        const b=e.target.closest('.opt');if(!b||answered)return;
+        answered=true;const k=+b.dataset.k,ok=k===q[3];res.push({tag:q[0],ok});if(ok)pts+=hinted?1:2;
+        $$('.opt',root).forEach((o,n)=>{o.classList.toggle('right',n===q[3]);o.classList.toggle('wrong',n===k&&!ok);o.disabled=true;});
+        $('#qfb',root).innerHTML=(ok?vd('ok','Correct.',esc(q[4])):vd('bad','Not quite.',esc(q[4])))+`<div class="btnrow"><button class="btn" id="qn">${i+1>=qs.length?'See results':'Next question'}</button></div>`;
+        $('#qn',root).onclick=()=>{i++;showLocal();};$('#qn',root).focus();
       };
     };
-    start();
+    if (apiBase) startRemote(); else localStart();
   },
 });
