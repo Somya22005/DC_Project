@@ -52,6 +52,7 @@ import './modules/advanced/encapsulation.js';
 import './modules/advanced/encryption.js';
 import './modules/advanced/packet-capture.js';
 import './modules/advanced/troubleshooting.js';
+import './modules/advanced/network-interfaces.js';
 import './modules/advanced/firewall.js';
 import './modules/learning/protocol-comparison.js';
 import './modules/learning/journey.js';
