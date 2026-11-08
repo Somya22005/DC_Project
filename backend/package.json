@@ -1,0 +1,16 @@
+{
+  "name": "bitsecure-adaptive-quiz-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Authenticated Groq-powered adaptive quiz API for BitSecure",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "dev": "node --watch server.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "express": "^5.1.0",
+    "groq-sdk": "^0.30.0",
+    "firebase-admin": "^13.5.0",
+    "helmet": "^8.1.0",
+    "express-rate-limit": "^8.1.0"
+  }
+}
