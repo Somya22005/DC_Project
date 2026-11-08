@@ -25,6 +25,11 @@ def _save(db,uid,data):
     data["updatedAt"]=firestore.SERVER_TIMESTAMP
     db.document(f"users/{uid}/adaptiveQuiz/profile").set(data,merge=True)
 
+# Sessions use a top-level subcollection under the user document. The profile
+# document remains at users/{uid}/adaptiveQuiz/profile.
+def _session_ref(db,uid,session_id):
+    return db.document(f"users/{uid}/adaptiveQuizSessions/{session_id}")
+
 @router.post("/start")
 async def start_quiz(user=Depends(require_user)):
     db=_db(); uid=user["uid"]; progress=_progress(db,uid); adaptive=_adaptive(db,uid)
@@ -32,16 +37,14 @@ async def start_quiz(user=Depends(require_user)):
     profile=analyze_progress(progress)
     questions=await generate_question_batch(profile,adaptive.get("questionHistory") or [])
     session_id=str(uuid4())
-    db.document(f"users/{uid}/adaptiveQuiz/sessions/{session_id}").set({
+    _session_ref(db,uid,session_id).set({
       "questions":questions,"createdAt":firestore.SERVER_TIMESTAMP,"status":"open"})
     public=[{k:v for k,v in q.items() if k not in ("correctAnswer","explanation")} for q in questions]
     return {"success":True,"sessionId":session_id,"count":8,"profile":profile,"questions":public}
 
 @router.post("/submit")
 async def submit_quiz(payload:SubmitQuizRequest,user=Depends(require_user)):
-    db=_db(); uid=user["uid"]
-    ref=db.document(f"users/{uid}/adaptiveQuiz/sessions/{payload.sessionId}")
-    snap=ref.get()
+    db=_db(); uid=user["uid"]; ref=_session_ref(db,uid,payload.sessionId); snap=ref.get()
     if not snap.exists or (snap.to_dict() or {}).get("status")!="open":
         raise HTTPException(404,"Quiz session not found or already submitted.")
     questions=(snap.to_dict() or {}).get("questions")
