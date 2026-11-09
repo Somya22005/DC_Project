@@ -2,6 +2,7 @@ import { auth } from '../auth/firebase-client.js';
 import { getIdToken } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
 
 const MAX_HISTORY = 8;
+const MAX_HISTORY_MESSAGE_CHARS = 6500;
 let history = [];
 let busy = false;
 
@@ -40,7 +41,7 @@ export function initDataCommsAssistant() {
     '  <textarea rows="2" maxlength="2000" required placeholder="Ask a networking doubt…"></textarea>',
     '  <button type="submit" aria-label="Send message">➤</button>',
     '</form>',
-    '<p class="dc-ai-note">Focused on Data Communications &amp; Computer Networks</p>'
+    '<p class="dc-ai-note">Data Communications, Computer Networks &amp; BitSecure project assistant</p>'
   ].join('\n');
 
   document.body.append(launcher, panel);
@@ -98,7 +99,12 @@ export function initDataCommsAssistant() {
         },
         body: JSON.stringify({
           message: message,
-          history: history.slice(-MAX_HISTORY)
+          history: history.slice(-MAX_HISTORY).map(function (item) {
+            return {
+              role: item.role,
+              content: String(item.content).slice(-MAX_HISTORY_MESSAGE_CHARS)
+            };
+          })
         })
       });
 
