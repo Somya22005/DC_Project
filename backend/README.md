@@ -8,9 +8,9 @@ Python implementation of the adaptive quiz API and the floating Data Communicati
 - `POST /api/quiz/start`
 - `POST /api/quiz/submit`
 - `GET /api/quiz/profile`
-- `POST /api/assistant/chat` — authenticated Data Communications and Computer Networks tutor
+- `POST /api/assistant/chat` — authenticated Data Communications / Computer Networks tutor and BitSecure project assistant. Each request loads the signed-in user's own Firestore progress (visited modules, topic performance, achievements, quiz stats and recent lab runs) to personalize answers.
 
-All quiz and assistant routes require `Authorization: Bearer <Firebase ID token>`. The assistant calls Groq using `openai/gpt-oss-120b` by default. Llama 3.3 70B is no longer the default because Groq deprecated it for developer-tier usage.
+All quiz and assistant routes require `Authorization: Bearer <Firebase ID token>`. The assistant calls Groq using `openai/gpt-oss-120b` by default. Llama 3.3 70B is no longer the default because Groq deprecated it for developer-tier usage. The assistant reads only the authenticated user's `users/{uid}/progress/overview` and `users/{uid}/adaptiveQuiz/profile` documents. Progress context is read from Firestore on each chat request; raw notes, credentials and tokens are not sent to the model. The assistant can answer about Data Communications, the BitSecure app/project, and the user's learning progress.
 
 ## Requirements
 
