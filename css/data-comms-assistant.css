@@ -1,0 +1,20 @@
+/* Floating Data Communications AI tutor */
+.dc-ai-launcher{position:fixed;right:24px;bottom:24px;z-index:120;display:flex;align-items:center;gap:9px;padding:13px 18px;border:1px solid var(--accent);border-radius:999px;background:var(--accent);color:var(--accent-ink);font:700 .95rem var(--sans);box-shadow:0 8px 28px #0004;cursor:pointer}
+.dc-ai-launcher span:first-child{font-size:1.2rem}
+.dc-ai-panel{position:fixed;right:24px;bottom:86px;z-index:121;width:min(390px,calc(100vw - 28px));height:min(540px,calc(100dvh - 120px));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line2);border-radius:18px;background:var(--surface);box-shadow:0 18px 60px #0005}
+.dc-ai-panel[hidden]{display:none}
+.dc-ai-header{display:flex;justify-content:space-between;align-items:center;padding:15px 17px;background:var(--surface2);border-bottom:1px solid var(--line)}
+.dc-ai-header strong,.dc-ai-header small{display:block}
+.dc-ai-header small,.dc-ai-note{color:var(--muted);font-size:.75rem}
+.dc-ai-close{border:0;background:transparent;color:var(--text);font-size:1.7rem;cursor:pointer}
+.dc-ai-messages{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:15px}
+.dc-ai-message{max-width:88%;padding:10px 12px;border:1px solid var(--line);border-radius:13px;background:var(--bg2);color:var(--text);font-size:.9rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.dc-ai-message.user{align-self:flex-end;background:var(--accent-soft);border-color:var(--accent)}
+.dc-ai-message.assistant{align-self:flex-start}
+.dc-ai-message.pending{color:var(--muted);font-style:italic}
+.dc-ai-form{display:flex;gap:8px;align-items:flex-end;padding:12px;border-top:1px solid var(--line)}
+.dc-ai-form textarea{min-height:44px;max-height:110px;resize:vertical;font:inherit;font-size:.88rem}
+.dc-ai-form button{flex:0 0 44px;height:44px;border:0;border-radius:11px;background:var(--accent);color:var(--accent-ink);font-size:1.2rem;cursor:pointer}
+.dc-ai-form button:disabled{opacity:.5;cursor:wait}
+.dc-ai-note{text-align:center;margin:0;padding:0 8px 10px}
+@media(max-width:480px){.dc-ai-launcher{right:14px;bottom:14px}.dc-ai-panel{right:14px;bottom:76px}}
