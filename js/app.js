@@ -61,6 +61,7 @@ import './modules/learning/challenges.js';
 import './modules/learning/glossary.js';
 import { DC } from './core/state.js';
 import { GROUPS } from './modules/registry.js';
+import { initDataCommsAssistant } from './app/data-comms-assistant.js';
 
 /**
  * One-time start-up: theme, navigation, core-lab controls, global handlers and the first route().
@@ -72,6 +73,7 @@ function boot() {
   applyTheme(P.theme);
   initGameUi();
   initModuleSearch();
+  initDataCommsAssistant();
   labInit();
   // Toggle the theme and remember the choice in saved progress (an empty theme means "follow the
   // operating system").
