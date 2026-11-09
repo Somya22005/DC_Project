@@ -532,7 +532,7 @@ regMod({
       const q = qs[i];
       root.innerHTML = panel(
         'Adaptive knowledge check',
-        `<div class="quizq"><small class="tagc">Groq-generated · Question ${i+1}/8</small><div class="bar"><i style="width:${(i/8)*100}%"></i></div><small class="tagc">${esc(q[0])}</small><p class="big">${esc(q[1])}</p></div>
+        `<div class="quizq"><small class="tagc">Question ${i+1}/8</small><div class="bar"><i style="width:${(i/8)*100}%"></i></div><small class="tagc">${esc(q[0])}</small><p class="big">${esc(q[1])}</p></div>
         <div class="opts" id="qo">${q[2].map((o,k)=>`<button class="opt" data-k="${k}"><span>${'ABCD'[k]}</span>${esc(o)}</button>`).join('')}</div><div id="qfb"></div>
         <div class="btnrow"><button class="btn ghost sm" id="qh">Show hint</button><button class="btn ghost sm" id="qskip">Skip</button></div>`
       );
