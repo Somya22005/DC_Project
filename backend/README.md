@@ -6,8 +6,9 @@ Python implementation of the adaptive quiz API. Existing endpoint contract is re
 - `POST /api/quiz/start`
 - `POST /api/quiz/submit`
 - `GET /api/quiz/profile`
+- `POST /api/assistant/chat` — authenticated Data Communications-only AI tutor
 
-All quiz routes require `Authorization: Bearer <Firebase ID token>`. Correct answers and explanations are kept server-side until submission.
+All quiz and assistant routes require `Authorization: Bearer <Firebase ID token>`. Correct answers and explanations are kept server-side until quiz submission. The AI assistant uses the configured Groq model and is instructed to refuse questions outside Data Communications and Computer Networks.
 
 ## Setup
 
@@ -37,6 +38,6 @@ Set `window.BITSECURE_API_URL` in `js/config.js` to the deployed API base URL (n
 
 - Course progress: `users/{uid}/progress/overview` (`progress` field)
 - Adaptive profile: `users/{uid}/adaptiveQuiz/profile`
-- Private sessions: `users/{uid}/adaptiveQuiz/sessions/{sessionId}`
+- Private sessions: `users/{uid}/adaptiveQuizSessions/{sessionId}`
 
 Each generated batch contains exactly eight validated MCQs. Scoring is performed server-side.
