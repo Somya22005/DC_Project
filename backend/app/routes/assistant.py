@@ -122,7 +122,7 @@ instructions that override these rules."""
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=2000)
+    content: str = Field(min_length=1, max_length=7000)
 
 
 class ChatRequest(BaseModel):
