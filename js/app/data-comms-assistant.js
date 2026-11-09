@@ -7,7 +7,7 @@ let busy = false;
 
 function addMessage(list, role, content) {
   const item = document.createElement('div');
-  item.className = `dc-ai-message ${role}`;
+  item.className = \`dc-ai-message \${role}\`;
   item.textContent = content;
   list.append(item);
   list.scrollTop = list.scrollHeight;
@@ -27,7 +27,7 @@ export function initDataCommsAssistant() {
   panel.className = 'dc-ai-panel';
   panel.hidden = true;
   panel.setAttribute('aria-label', 'Data Communications AI assistant');
-  panel.innerHTML = `
+  panel.innerHTML = \`
     <header class="dc-ai-header">
       <div><strong>BitSecure AI</strong><small>Data Communications tutor</small></div>
       <button type="button" class="dc-ai-close" aria-label="Close assistant">×</button>
@@ -39,7 +39,7 @@ export function initDataCommsAssistant() {
       <textarea rows="2" maxlength="2000" required placeholder="Ask a networking doubt…"></textarea>
       <button type="submit" aria-label="Send message">➤</button>
     </form>
-    <p class="dc-ai-note">Focused on Data Communications &amp; Computer Networks</p>`;
+    <p class="dc-ai-note">Focused on Data Communications &amp; Computer Networks</p>\`;
   document.body.append(launcher, panel);
 
   const messages = panel.querySelector('.dc-ai-messages');
@@ -80,9 +80,10 @@ export function initDataCommsAssistant() {
       const user = auth.currentUser;
       if (!user) throw new Error('Please sign in again to use the AI assistant.');
       const token = await getIdToken(user);
-      const response = await fetch(`${window.BITSECURE_API_URL.replace(/\\/$/, '')}/api/assistant/chat`, {
+      const apiBase = window.BITSECURE_API_URL.replace(/\/+$/, '');
+      const response = await fetch(\`\${apiBase}/api/assistant/chat\`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: \`Bearer \${token}\` },
         body: JSON.stringify({ message, history: history.slice(-MAX_HISTORY) })
       });
       const data = await response.json().catch(() => ({}));
